@@ -7,7 +7,7 @@
 
 This repository contains all the code and resources associated with the paper:
 
-**Schweinberger, M., [Co-authors]. (2025). _F%$# Twitter: A corpus-based analysis of vulgar language on Twitter_. Corpas.**  
+**Schweinberger, M., M. Laitinen, M. Haugh, P. Rautionaho, M. Fatemi, S.Hames, & M. Takahashi. (2027). _F%$# Twitter: A corpus-based analysis of vulgar language on Twitter_. Corpora 27(1).** 
 
 The repository allows researchers to explore, understand, and reproduce the analyses presented in the paper.
 
