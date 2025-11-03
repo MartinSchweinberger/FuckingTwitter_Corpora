@@ -38,7 +38,7 @@ library(Hmisc)
 library(cfa)
 library(countrycode)
 library(ggflags)
-library(forcats)  # For reordering
+library(forcats)
 ```
 
 # Processing
@@ -152,18 +152,6 @@ ggsave(here::here("images", "Fig2_new.png"), width = 15, height = 12, units = "c
 
 
 
-```{r}
-Fig2dat %>%
-  ggplot(aes(x = reorder(lemma, pmw), y = pmw, group = code, country = code)) +
-  geom_flag() +
-  coord_flip() +
-  theme_bw()  +
-  theme(panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank()) +
-  labs(y = "Relative Frequency (per million words)", x = "Vulgar lemma (only N > 500)")
-# save
-ggsave(here::here("images", "Fig2.png"), width = 15, height = 12, units = "cm", dpi = 600)
-```
 
 # CFA
 
@@ -772,44 +760,6 @@ colloauuk %>%
 ## Fig5 collo
 
 ```{r}
-Fig5dat2 <- rbind(colloauuk, collousau, collousuk) %>%
-  dplyr::filter(!is.na(phi)) %>%
-  dplyr::group_by(comp) %>%
-  mutate(token = fct_reorder2(token, comp, -phi)) %>%
-  dplyr::ungroup()
-Fig5dat2 %>%
-    # create a ggplot
-    ggplot(aes(x = token, y = phi, label = phi, fill = type, country = code)) +
-    # add a bar plot using the 'phi' values
-    geom_bar(stat = "identity") +
-    # add text labels above the bars with rounded 'phi' values
-    geom_text(aes(
-        y = ifelse(phi > 0, phi + 0.03, phi - 0.03),
-        label = round(phi, 3)
-    ), color = "gray20", size = 3) +
-    geom_flag(aes(y = 0)) +
-    facet_wrap(~comp, scales = "free_y") +
-    # flip the coordinates to have horizontal bars
-    coord_flip(ylim = c(-0.15, 0.2)) +
-    # set the theme to a basic white and black theme
-    theme_bw() +
-    # remove legend
-    theme(legend.position = "none") +
-    # define colors
-    scale_fill_manual(values = c("gray50", "gray80")) +
-    # set the x-axis label to "Token" and y-axis label to "Keyness (G2)"
-    labs(title = "", x = "Vulgar lemma", y = "Phi-coefficient")
-# save
-ggsave(here::here("images", "Fig5.png"), width = 21, height = 12, units = "cm", dpi = 600)
-```
-
-```{r}
-library(dplyr)
-library(ggplot2)
-library(forcats)
-library(ggflags)
-library(tidytext) # for reorder_within
-
 # Combine datasets and prepare
 Fig5dat2 <- bind_rows(colloauuk, collousau, collousuk) %>%
   filter(!is.na(phi))
