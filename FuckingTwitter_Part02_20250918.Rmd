@@ -1,0 +1,857 @@
+---
+title: "F%$# Twitter. A corpus-based analysis of vulgar language on Twitter - Part 2: Data Processing and Usage Statistics"
+author: "Martin Schweinberger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Introduction
+
+This document shows the analysis of swear words in the Australian, UK, and US Twitterspheres
+
+# Preparation
+
+Install packages
+
+```{r inst, eval = F}
+# install packages from CRAN
+install.packages(c("dplyr", "here", "stringr", "quanteda", "tidytext", "sentimentr", "writexl", "ggplot2", "Hmisc", "countrycode", "ggimage", "cfa", "forcats"))
+
+# install ggflags package from GitHub
+install.packages("devtools")
+devtools::install_github('rensa/ggflags')
+```
+
+Activate packages
+
+```{r}
+library(dplyr)
+library(here)
+library(stringr)
+library(tidytext)
+library(quanteda)
+library(sentimentr)
+library(writexl)
+library(ggplot2)
+library(Hmisc)
+library(cfa)
+library(countrycode)
+library(ggflags)
+library(forcats)  # For reordering
+```
+
+# Processing
+
+Load data
+
+```{r load}
+twdat  <- base::readRDS(file = here::here("data", "twdat.rda"))
+kwicdf <- base::readRDS(file = here::here("tables", "kwicdf_clean.rda"))
+# inspect
+str(twdat); str(kwicdf)
+```
+
+
+
+# Bad language overview
+count swear words
+
+```{r}
+kwicdf %>%
+  dplyr::group_by(lemma) %>%
+  dplyr::summarize(freq = n()) %>%
+  ungroup() %>%
+  dplyr::mutate(total = sum(freq),
+                percent = round(freq/total *100, 2)) %>%
+  #dplyr::group_by(lemma) %>%
+  #dplyr::summarize(freq = sum(freq)) %>%
+  ggplot(aes(reorder(lemma, freq), freq)) +
+  geom_bar(stat = "identity", fill = "gray30") +
+  geom_text(aes(y = freq+7000, label = paste(freq, " (", percent, "%)", sep = "")), size = 2.5, col = "gray20") + 
+  theme_bw() +
+  labs(x = "", y = "Absolute frequency",
+       title = "") +
+  coord_flip(ylim = c(0, 55000)) +
+  theme(panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+# save
+ggsave(here::here("images", "Fig1.png"), width = 15, height = 20, units = "cm", dpi = 600)
+```
+
+```{r}
+kwicdf %>%
+  dplyr::group_by(lemma) %>%
+  dplyr::summarize(freq = n()) %>%
+  ungroup() %>%
+  dplyr::mutate(total = sum(freq),
+                percent = round(freq/total *100, 2)) %>%
+  dplyr::arrange(-percent) -> topvul
+sum(head(topvul$percent))
+```
+
+
+
+find lemmas that occur with a specific frequency
+
+```{r}
+kwicdf %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarize(freq = n()) %>%
+  ungroup() %>%
+  dplyr::mutate(total = sum(freq)) %>%
+  dplyr::mutate(ptw = freq/total*1000000,
+                lemma = ifelse(freq > 500, lemma, "other")) %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarize(freq = sum(freq)) %>%
+  dplyr::filter(lemma != "other") %>%
+  dplyr::pull(lemma) -> lemmaredux
+# inspect
+lemmaredux
+```
+
+
+
+```{r}
+twdat %>%
+  dplyr::group_by(code) %>%
+  dplyr::summarise(words = sum(words)) -> twdatsum
+# inspect
+twdatsum
+```
+
+```{r}
+kwicsum <- kwicdf %>%
+  dplyr::mutate(lemma = ifelse(lemma %in% lemmaredux, lemma, "other")) %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarise(freq = n())
+# inspect
+kwicsum
+```
+
+```{r}
+Fig2dat <- dplyr::left_join(twdatsum, kwicsum) %>%
+  dplyr::mutate(pmw = round(freq/words*1000000, 3))
+# inspect
+Fig2dat
+```
+
+```{r}
+Fig2dat %>%
+  ggplot(aes(x = reorder(lemma, pmw), y = pmw, group = code, country = code)) +
+  geom_flag(size = 3, position = position_jitter(width = 0.3, height = 0.3)) +
+  coord_flip() +
+  theme_bw() +
+  theme(#panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  labs(y = "Relative Frequency (per million words)",
+       x = "Vulgar lemma (only N > 500)")
+# save
+ggsave(here::here("images", "Fig2_new.png"), width = 15, height = 12, units = "cm", dpi = 600)
+```
+
+
+
+```{r}
+Fig2dat %>%
+  ggplot(aes(x = reorder(lemma, pmw), y = pmw, group = code, country = code)) +
+  geom_flag() +
+  coord_flip() +
+  theme_bw()  +
+  theme(panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()) +
+  labs(y = "Relative Frequency (per million words)", x = "Vulgar lemma (only N > 500)")
+# save
+ggsave(here::here("images", "Fig2.png"), width = 15, height = 12, units = "cm", dpi = 600)
+```
+
+# CFA
+
+```{r}
+kwicdf %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarise(freq = n()) -> cfadat
+configs <- cfadat %>%
+  dplyr::select(code, lemma)
+counts <- cfadat$freq
+# perform cfa
+cfa(configs, counts) -> cfares
+cfares$table %>% as.data.frame() %>%
+  dplyr::filter(sig.chisq == T)  %>%
+  dplyr::mutate(type = ifelse(expected<n, "avoided", "preferred"),
+                phi = sqrt(chisq/sum(cfadat$freq)),
+                phi = ifelse(type == "avoided", phi, -phi))   %>%
+  dplyr::arrange(-phi) %>%
+  dplyr::select(-sig.chisq, -z, -p.z, -sig.z) -> cfaresdf
+# save to disc
+base::saveRDS(cfaresdf, file = here::here("tables", "cfaresdf.rda"))
+# inspect
+cfaresdf
+```
+
+## CFA US GB
+
+```{r}
+kwicdf %>%
+  dplyr::filter(code == "gb"|code == "us") %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarise(freq = n()) -> cfadat
+configs <- cfadat %>%
+  dplyr::select(code, lemma)
+counts <- cfadat$freq
+# perform cfa
+cfa(configs, counts) -> cfares
+cfares$table %>% as.data.frame() %>%
+  dplyr::filter(sig.chisq == T)  %>%
+  dplyr::mutate(type = ifelse(expected<n, "preferred", "avoided"),
+                phi = sqrt(chisq/sum(cfadat$freq)),
+                phi = ifelse(type == "avoided", -phi, phi))   %>%
+  dplyr::arrange(-phi) %>%
+  dplyr::select(-sig.chisq, -z, -p.z, -sig.z)   %>%
+  dplyr::mutate(comp = "United States vs United Kingdom") -> cfausgb
+# save to disc
+base::saveRDS(cfausgb, file = here::here("tables", "cfausgb.rda"))
+# inspect
+cfausgb
+```
+
+## CFA AU US
+
+```{r}
+kwicdf %>%
+  dplyr::filter(code == "au"|code == "us") %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarise(freq = n()) -> cfadat
+configs <- cfadat %>%
+  dplyr::select(code, lemma)
+counts <- cfadat$freq
+# perform cfa
+cfa(configs, counts) -> cfares
+cfares$table %>% as.data.frame() %>%
+  dplyr::filter(sig.chisq == T)  %>%
+  dplyr::mutate(type = ifelse(expected<n, "preferred", "avoided"),
+                phi = sqrt(chisq/sum(cfadat$freq)),
+                phi = ifelse(type == "avoided", -phi, phi))   %>%
+  dplyr::arrange(-phi) %>%
+  dplyr::select(-sig.chisq, -z, -p.z, -sig.z)   %>%
+  dplyr::mutate(comp = "United States vs Australia") -> cfausau
+# save to disc
+base::saveRDS(cfausau, file = here::here("tables", "cfausau.rda"))
+# inspect
+cfausau
+```
+
+## CFA AU GB
+
+```{r}
+kwicdf %>%
+  dplyr::filter(code == "au"|code == "gb") %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarise(freq = n()) -> cfadat
+configs <- cfadat %>%
+  dplyr::select(code, lemma)
+counts <- cfadat$freq
+# perform cfa
+cfa(configs, counts) -> cfares
+cfares$table %>% as.data.frame() %>%
+  dplyr::filter(sig.chisq == T)  %>%
+  dplyr::mutate(type = ifelse(expected<n, "preferred", "avoided"),
+                phi = sqrt(chisq/sum(cfadat$freq)),
+                phi = ifelse(type == "avoided", -phi, phi))   %>%
+  dplyr::arrange(-phi) %>%
+  dplyr::select(-sig.chisq, -z, -p.z, -sig.z)   %>%
+  dplyr::mutate(comp = "Australia vs United Kingdom") -> cfaaugb
+# save to disc
+base::saveRDS(cfaaugb, file = here::here("tables", "cfaaugb.rda"))
+# inspect
+cfaaugb
+```
+
+
+## Fig5_cfa
+
+```{r}
+Fig5dat <- rbind(cfausgb, cfausau) %>%
+  dplyr::mutate(label = stringr::str_replace_all(label, "gb", "uk")) %>%
+  dplyr::select(-chisq, -p.chisq, -Q)
+Fig5dat
+```
+
+```{r}
+Fig5dat %>%
+  ggplot(aes(y = phi, x = reorder(label, phi), fill = , fill = phi > 0)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(
+        y = ifelse(phi > 0, phi - 0.02, phi + 0.02),
+        label = round(phi, 2)
+    ), color = "gray20", size = 3) +
+  facet_wrap(~comp, scales = "free") +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "gray80", "FALSE" = "gray50")) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none") +
+  labs(x = "Configuration\n(region + lemma)", y = "Phi-coefficient")
+# save
+ggsave(here::here("images", "Fig5_cfa.png"), width = 15, height = 12, units = "cm", dpi = 600)
+```
+
+# Collostructional Analysis
+
+```{r}
+head(kwicdf)
+kwicdf %>%
+  dplyr::mutate(code = ifelse(code == "gb", "uk", code)) %>%
+  dplyr::group_by(code, lemma) %>%
+  dplyr::summarise(freq = n()) %>%
+  tidyr::spread(code, freq) %>%
+  tidyr::replace_na(list(au = 0, uk = 0, us = 0)) %>%
+  dplyr::rename(token = lemma) -> collodat
+# inspect
+collodat
+```
+
+## US vs UK
+
+```{r}
+collodat %>%
+  dplyr::select(-au)  %>%
+  dplyr::rename(text1 = uk,
+                text2 = us) %>%
+    dplyr::mutate(
+        text1 = as.numeric(text1),
+        text2 = as.numeric(text2)
+    ) %>%
+    dplyr::mutate(
+        C1 = sum(text1),
+        C2 = sum(text2),
+        N = C1 + C2
+    ) %>%
+    dplyr::rowwise() %>%
+    dplyr::mutate(
+        R1 = text1 + text2,
+        R2 = N - R1,
+        O11 = text1,
+        O11 = ifelse(O11 == 0, O11 + 1, O11),
+        O12 = R1 - O11,
+        O12 = ifelse(O12 < 0, 0, O12),
+        O21 = C1 - O11,
+        O22 = C2 - O12
+    ) %>%
+    dplyr::mutate(
+        E11 = (R1 * C1) / N,
+        E12 = (R1 * C2) / N,
+        E21 = (R2 * C1) / N,
+        E22 = (R2 * C2) / N
+    ) %>%
+    dplyr::select(-text1, -text2) -> stats_tb2
+# inspect
+stats_tb2
+```
+
+
+```{r}
+stats_tb2 %>%
+    # determine number of rows
+    dplyr::mutate(Rws = nrow(.)) %>%
+    # work row-wise
+    dplyr::rowwise() %>%
+    # calculate fishers' exact test
+    dplyr::mutate(p = as.vector(unlist(fisher.test(matrix(c(O11, O12, O21, O22),
+        ncol = 2, byrow = T
+    ))[1]))) %>%
+    # extract descriptives
+    dplyr::mutate(
+        ptw_target = O11 / C1 * 1000,
+        ptw_ref = O12 / C2 * 1000
+    ) %>%
+    # extract x2 statistics
+    dplyr::mutate(X2 = (O11 - E11)^2 / E11 + (O12 - E12)^2 / E12 + (O21 - E21)^2 / E21 + (O22 - E22)^2 / E22) %>%
+    # extract keyness measures
+    dplyr::mutate(
+        phi = sqrt((X2 / N)),
+        MI = log2(O11 / E11),
+        t.score = (O11 - E11) / sqrt(O11),
+        PMI = log2((O11 / N) / ((O11 + O12) / N) *
+            ((O11 + O21) / N)),
+        DeltaP = (O11 / R1) - (O21 / R2),
+        LogOddsRatio = log(((O11 + 0.5) * (O22 + 0.5)) / ((O12 + 0.5) * (O21 + 0.5))),
+        G2 = 2 * ((O11 + 0.001) * log((O11 + 0.001) / E11) + (O12 + 0.001) * log((O12 + 0.001) / E12) + O21 * log(O21 / E21) + O22 * log(O22 / E22)),
+
+        # traditional keyness measures
+        RateRatio = ((O11 + 0.001) / (C1 * 1000)) / ((O12 + 0.001) / (C2 * 1000)),
+        RateDifference = (O11 / (C1 * 1000)) - (O12 / (C2 * 1000)),
+        DifferenceCoefficient = RateDifference / sum((O11 / (C1 * 1000)), (O12 / (C2 * 1000))),
+        OddsRatio = ((O11 + 0.5) * (O22 + 0.5)) / ((O12 + 0.5) * (O21 + 0.5)),
+        LLR = 2 * (O11 * (log((O11 / E11)))),
+        RDF = abs((O11 / C1) - (O12 / C2)),
+        PDiff = abs(ptw_target - ptw_ref) / ((ptw_target + ptw_ref) / 2) * 100,
+        SignedDKL = sum(ifelse(O11 > 0, O11 * log(O11 / ((O11 + O12) / 2)), 0) - ifelse(O12 > 0, O12 * log(O12 / ((O11 + O12) / 2)), 0))
+    ) %>%
+    # determine Bonferroni corrected significance
+    dplyr::mutate(Sig_corrected = dplyr::case_when(
+        p / Rws > .05 ~ "n.s.",
+        p / Rws > .01 ~ "p < .05*",
+        p / Rws > .001 ~ "p < .01**",
+        p / Rws <= .001 ~ "p < .001***",
+        T ~ "N.A."
+    )) %>%
+    # round p-value
+    dplyr::mutate(
+        p = round(p, 5),
+        type = ifelse(E11 > O11, "antitype", "type"),
+        phi = ifelse(E11 > O11, -phi, phi),
+        G2 = ifelse(E11 > O11, -G2, G2)
+    ) %>%
+    # filter out non significant results
+    dplyr::filter(Sig_corrected != "n.s.") %>%
+    # arrange by phi
+    dplyr::arrange(-phi) %>%
+    # remove superfluous columns
+    dplyr::select(-any_of(c(
+        "TermCoocFreq", "AllFreq", "NRows",
+        "R1", "R2", "C1", "C2", "E12", "E21",
+        "E22", "upp", "low", "op", "t.score", "z.score", "Rws"
+    ))) %>%
+    dplyr::relocate(any_of(c(
+        "token", "type", "Sig_corrected", "O11", "O12",
+        "ptw_target", "ptw_ref", "G2", "RDF", "RateRatio",
+        "RateDifference", "DifferenceCoefficient", "LLR", "SignedDKL",
+        "PDiff", "LogOddsRatio", "MI", "PMI", "phi", "X2",
+        "OddsRatio", "DeltaP", "p", "E11", "O21", "O22"
+    ))) %>%
+  dplyr::mutate(code = ifelse(phi > 0, "gb", "us")) -> assoc_tb3
+# inspect
+assoc_tb3
+```
+
+```{r}
+# get top 10 keywords for text 1
+top <- assoc_tb3 %>%
+    dplyr::ungroup() %>%
+    dplyr::slice_head(n = 10)
+# get top 10 keywords for text 2
+bot <- assoc_tb3 %>%
+    dplyr::ungroup() %>%
+    dplyr::slice_tail(n = 10)
+# combine into table
+rbind(top, bot)  %>%
+  dplyr::mutate(comp = "United States vs United Kingdom")-> collousuk
+
+collousuk %>%
+    # create a ggplot
+    ggplot(aes(x = reorder(token, phi, mean), y = phi, label = phi, fill = type, country = code)) +
+    # add a bar plot using the 'phi' values
+    geom_bar(stat = "identity") +
+    # add text labels above the bars with rounded 'phi' values
+    geom_text(aes(
+        y = ifelse(phi > 0, phi - 0.02, phi - 0.02),
+        label = round(phi, 3)
+    ), color = "gray20", size = 3) +
+    geom_flag(aes(y = 0)) +
+    # flip the coordinates to have horizontal bars
+    coord_flip() +
+    # set the theme to a basic white and black theme
+    theme_bw() +
+    # remove legend
+    theme(legend.position = "none") +
+    # define colors
+    scale_fill_manual(values = c("gray50", "gray80")) +
+    # set the x-axis label to "Token" and y-axis label to "Keyness (G2)"
+    labs(title = "", x = "Vulgar lemma", y = "Phi-coefficient")
+```
+
+## US vs AU
+
+```{r}
+collodat %>%
+  dplyr::select(-uk)  %>%
+  dplyr::rename(text1 = au,
+                text2 = us) %>%
+    dplyr::mutate(
+        text1 = as.numeric(text1),
+        text2 = as.numeric(text2)
+    ) %>%
+    dplyr::mutate(
+        C1 = sum(text1),
+        C2 = sum(text2),
+        N = C1 + C2
+    ) %>%
+    dplyr::rowwise() %>%
+    dplyr::mutate(
+        R1 = text1 + text2,
+        R2 = N - R1,
+        O11 = text1,
+        O11 = ifelse(O11 == 0, O11 + 1, O11),
+        O12 = R1 - O11,
+        O12 = ifelse(O12 < 0, 0, O12),
+        O21 = C1 - O11,
+        O22 = C2 - O12
+    ) %>%
+    dplyr::mutate(
+        E11 = (R1 * C1) / N,
+        E12 = (R1 * C2) / N,
+        E21 = (R2 * C1) / N,
+        E22 = (R2 * C2) / N
+    ) %>%
+    dplyr::select(-text1, -text2) -> stats_tb2
+# inspect
+stats_tb2
+```
+
+
+```{r}
+stats_tb2 %>%
+    # determine number of rows
+    dplyr::mutate(Rws = nrow(.)) %>%
+    # work row-wise
+    dplyr::rowwise() %>%
+    # calculate fishers' exact test
+    dplyr::mutate(p = as.vector(unlist(fisher.test(matrix(c(O11, O12, O21, O22),
+        ncol = 2, byrow = T
+    ))[1]))) %>%
+    # extract descriptives
+    dplyr::mutate(
+        ptw_target = O11 / C1 * 1000,
+        ptw_ref = O12 / C2 * 1000
+    ) %>%
+    # extract x2 statistics
+    dplyr::mutate(X2 = (O11 - E11)^2 / E11 + (O12 - E12)^2 / E12 + (O21 - E21)^2 / E21 + (O22 - E22)^2 / E22) %>%
+    # extract keyness measures
+    dplyr::mutate(
+        phi = sqrt((X2 / N)),
+        MI = log2(O11 / E11),
+        t.score = (O11 - E11) / sqrt(O11),
+        PMI = log2((O11 / N) / ((O11 + O12) / N) *
+            ((O11 + O21) / N)),
+        DeltaP = (O11 / R1) - (O21 / R2),
+        LogOddsRatio = log(((O11 + 0.5) * (O22 + 0.5)) / ((O12 + 0.5) * (O21 + 0.5))),
+        G2 = 2 * ((O11 + 0.001) * log((O11 + 0.001) / E11) + (O12 + 0.001) * log((O12 + 0.001) / E12) + O21 * log(O21 / E21) + O22 * log(O22 / E22)),
+
+        # traditional keyness measures
+        RateRatio = ((O11 + 0.001) / (C1 * 1000)) / ((O12 + 0.001) / (C2 * 1000)),
+        RateDifference = (O11 / (C1 * 1000)) - (O12 / (C2 * 1000)),
+        DifferenceCoefficient = RateDifference / sum((O11 / (C1 * 1000)), (O12 / (C2 * 1000))),
+        OddsRatio = ((O11 + 0.5) * (O22 + 0.5)) / ((O12 + 0.5) * (O21 + 0.5)),
+        LLR = 2 * (O11 * (log((O11 / E11)))),
+        RDF = abs((O11 / C1) - (O12 / C2)),
+        PDiff = abs(ptw_target - ptw_ref) / ((ptw_target + ptw_ref) / 2) * 100,
+        SignedDKL = sum(ifelse(O11 > 0, O11 * log(O11 / ((O11 + O12) / 2)), 0) - ifelse(O12 > 0, O12 * log(O12 / ((O11 + O12) / 2)), 0))
+    ) %>%
+    # determine Bonferroni corrected significance
+    dplyr::mutate(Sig_corrected = dplyr::case_when(
+        p / Rws > .05 ~ "n.s.",
+        p / Rws > .01 ~ "p < .05*",
+        p / Rws > .001 ~ "p < .01**",
+        p / Rws <= .001 ~ "p < .001***",
+        T ~ "N.A."
+    )) %>%
+    # round p-value
+    dplyr::mutate(
+        p = round(p, 5),
+        type = ifelse(E11 > O11, "antitype", "type"),
+        phi = ifelse(E11 > O11, -phi, phi),
+        G2 = ifelse(E11 > O11, -G2, G2)
+    ) %>%
+    # filter out non significant results
+    dplyr::filter(Sig_corrected != "n.s.") %>%
+    # arrange by phi
+    dplyr::arrange(-phi) %>%
+    # remove superfluous columns
+    dplyr::select(-any_of(c(
+        "TermCoocFreq", "AllFreq", "NRows",
+        "R1", "R2", "C1", "C2", "E12", "E21",
+        "E22", "upp", "low", "op", "t.score", "z.score", "Rws"
+    ))) %>%
+    dplyr::relocate(any_of(c(
+        "token", "type", "Sig_corrected", "O11", "O12",
+        "ptw_target", "ptw_ref", "G2", "RDF", "RateRatio",
+        "RateDifference", "DifferenceCoefficient", "LLR", "SignedDKL",
+        "PDiff", "LogOddsRatio", "MI", "PMI", "phi", "X2",
+        "OddsRatio", "DeltaP", "p", "E11", "O21", "O22"
+    ))) %>%
+  dplyr::mutate(code = ifelse(phi > 0, "au", "us")) %>%
+  dplyr::filter(!is.na(phi)) -> assoc_tb3
+# inspect
+assoc_tb3
+```
+
+
+```{r}
+# get top 10 keywords for text 1
+top <- assoc_tb3 %>%
+    dplyr::ungroup() %>%
+   #dplyr::filter(!is.na(phi)) %>%
+    dplyr::slice_head(n = 10)
+# get top 10 keywords for text 2
+bot <- assoc_tb3 %>%
+    dplyr::ungroup() %>%
+    dplyr::slice_tail(n = 10)
+# combine into table
+rbind(top, bot)  %>%
+  dplyr::mutate(comp = "Australia vs United States")-> collousau
+
+collousau %>%
+    # create a ggplot
+    ggplot(aes(x = reorder(token, phi, mean), y = phi, label = phi, fill = type, country = code)) +
+    # add a bar plot using the 'phi' values
+    geom_bar(stat = "identity") +
+    # add text labels above the bars with rounded 'phi' values
+    geom_text(aes(
+        y = ifelse(phi > 0, phi + 0.02, phi - 0.02),
+        label = round(phi, 3)
+    ), color = "gray20", size = 3) +
+    geom_flag(aes(y = 0)) +
+    # flip the coordinates to have horizontal bars
+    coord_flip() +
+    # set the theme to a basic white and black theme
+    theme_bw() +
+    # remove legend
+    theme(legend.position = "none") +
+    # define colors
+    scale_fill_manual(values = c("gray50", "gray80")) +
+    # set the x-axis label to "Token" and y-axis label to "Keyness (G2)"
+    labs(title = "", x = "Vulgar lemma", y = "Phi-coefficient")
+```
+
+## GB vs AU
+
+```{r}
+collodat %>%
+  dplyr::select(-us)  %>%
+  dplyr::rename(text1 = uk,
+                text2 = au) %>%
+    dplyr::mutate(
+        text1 = as.numeric(text1),
+        text2 = as.numeric(text2)
+    ) %>%
+    dplyr::mutate(
+        C1 = sum(text1),
+        C2 = sum(text2),
+        N = C1 + C2
+    ) %>%
+    dplyr::rowwise() %>%
+    dplyr::mutate(
+        R1 = text1 + text2,
+        R2 = N - R1,
+        O11 = text1,
+        O11 = ifelse(O11 == 0, O11 + 1, O11),
+        O12 = R1 - O11,
+        O12 = ifelse(O12 < 0, 0, O12),
+        O21 = C1 - O11,
+        O22 = C2 - O12
+    ) %>%
+    dplyr::mutate(
+        E11 = (R1 * C1) / N,
+        E12 = (R1 * C2) / N,
+        E21 = (R2 * C1) / N,
+        E22 = (R2 * C2) / N
+    ) %>%
+    dplyr::select(-text1, -text2) -> stats_tb2
+# inspect
+stats_tb2
+```
+
+
+
+```{r}
+stats_tb2 %>%
+    # determine number of rows
+    dplyr::mutate(Rws = nrow(.)) %>%
+    # work row-wise
+    dplyr::rowwise() %>%
+    # calculate fishers' exact test
+    dplyr::mutate(p = as.vector(unlist(fisher.test(matrix(c(O11, O12, O21, O22),
+        ncol = 2, byrow = T
+    ))[1]))) %>%
+    # extract descriptives
+    dplyr::mutate(
+        ptw_target = O11 / C1 * 1000,
+        ptw_ref = O12 / C2 * 1000
+    ) %>%
+    # extract x2 statistics
+    dplyr::mutate(X2 = (O11 - E11)^2 / E11 + (O12 - E12)^2 / E12 + (O21 - E21)^2 / E21 + (O22 - E22)^2 / E22) %>%
+    # extract keyness measures
+    dplyr::mutate(
+        phi = sqrt((X2 / N)),
+        MI = log2(O11 / E11),
+        t.score = (O11 - E11) / sqrt(O11),
+        PMI = log2((O11 / N) / ((O11 + O12) / N) *
+            ((O11 + O21) / N)),
+        DeltaP = (O11 / R1) - (O21 / R2),
+        LogOddsRatio = log(((O11 + 0.5) * (O22 + 0.5)) / ((O12 + 0.5) * (O21 + 0.5))),
+        G2 = 2 * ((O11 + 0.001) * log((O11 + 0.001) / E11) + (O12 + 0.001) * log((O12 + 0.001) / E12) + O21 * log(O21 / E21) + O22 * log(O22 / E22)),
+
+        # traditional keyness measures
+        RateRatio = ((O11 + 0.001) / (C1 * 1000)) / ((O12 + 0.001) / (C2 * 1000)),
+        RateDifference = (O11 / (C1 * 1000)) - (O12 / (C2 * 1000)),
+        DifferenceCoefficient = RateDifference / sum((O11 / (C1 * 1000)), (O12 / (C2 * 1000))),
+        OddsRatio = ((O11 + 0.5) * (O22 + 0.5)) / ((O12 + 0.5) * (O21 + 0.5)),
+        LLR = 2 * (O11 * (log((O11 / E11)))),
+        RDF = abs((O11 / C1) - (O12 / C2)),
+        PDiff = abs(ptw_target - ptw_ref) / ((ptw_target + ptw_ref) / 2) * 100,
+        SignedDKL = sum(ifelse(O11 > 0, O11 * log(O11 / ((O11 + O12) / 2)), 0) - ifelse(O12 > 0, O12 * log(O12 / ((O11 + O12) / 2)), 0))
+    ) %>%
+    # determine Bonferroni corrected significance
+    dplyr::mutate(Sig_corrected = dplyr::case_when(
+        p / Rws > .05 ~ "n.s.",
+        p / Rws > .01 ~ "p < .05*",
+        p / Rws > .001 ~ "p < .01**",
+        p / Rws <= .001 ~ "p < .001***",
+        T ~ "N.A."
+    )) %>%
+    # round p-value
+    dplyr::mutate(
+        p = round(p, 5),
+        type = ifelse(E11 > O11, "antitype", "type"),
+        phi = ifelse(E11 > O11, -phi, phi),
+        G2 = ifelse(E11 > O11, -G2, G2)
+    ) %>%
+    # filter out non significant results
+    dplyr::filter(Sig_corrected != "n.s.") %>%
+    # arrange by phi
+    dplyr::arrange(-phi) %>%
+    # remove superfluous columns
+    dplyr::select(-any_of(c(
+        "TermCoocFreq", "AllFreq", "NRows",
+        "R1", "R2", "C1", "C2", "E12", "E21",
+        "E22", "upp", "low", "op", "t.score", "z.score", "Rws"
+    ))) %>%
+    dplyr::relocate(any_of(c(
+        "token", "type", "Sig_corrected", "O11", "O12",
+        "ptw_target", "ptw_ref", "G2", "RDF", "RateRatio",
+        "RateDifference", "DifferenceCoefficient", "LLR", "SignedDKL",
+        "PDiff", "LogOddsRatio", "MI", "PMI", "phi", "X2",
+        "OddsRatio", "DeltaP", "p", "E11", "O21", "O22"
+    ))) %>%
+  dplyr::mutate(code = ifelse(phi > 0, "gb", "au"))  %>%
+  dplyr::filter(!is.na(phi))-> assoc_tb3
+# inspect
+assoc_tb3
+```
+
+
+```{r}
+# get top 10 keywords for text 1
+top <- assoc_tb3 %>%
+    dplyr::ungroup() %>%
+    dplyr::slice_head(n = 10)
+# get top 10 keywords for text 2
+bot <- assoc_tb3 %>%
+    dplyr::ungroup() %>%
+    dplyr::slice_tail(n = 10)
+# combine into table
+rbind(top, bot) %>%
+  dplyr::mutate(comp = "Australia vs United Kingdom") -> colloauuk
+
+colloauuk %>%
+    # create a ggplot
+    ggplot(aes(x = reorder(token, phi, mean), y = phi, label = phi, fill = type, country = code)) +
+    # add a bar plot using the 'phi' values
+    geom_bar(stat = "identity") +
+    # add text labels above the bars with rounded 'phi' values
+    geom_text(aes(
+        y = ifelse(phi > 0, phi + 0.02, phi - 0.02),
+        label = round(phi, 3)
+    ), color = "gray20", size = 3) +
+    geom_flag(aes(y = 0)) +
+    # flip the coordinates to have horizontal bars
+    coord_flip() +
+    # set the theme to a basic white and black theme
+    theme_bw() +
+    # remove legend
+    theme(legend.position = "none") +
+    # define colors
+    scale_fill_manual(values = c("gray50", "gray80")) +
+    # set the x-axis label to "Token" and y-axis label to "Keyness (G2)"
+    labs(title = "", x = "Vulgar lemma", y = "Phi-coefficient")
+```
+
+
+## Fig5 collo
+
+```{r}
+Fig5dat2 <- rbind(colloauuk, collousau, collousuk) %>%
+  dplyr::filter(!is.na(phi)) %>%
+  dplyr::group_by(comp) %>%
+  mutate(token = fct_reorder2(token, comp, -phi)) %>%
+  dplyr::ungroup()
+Fig5dat2 %>%
+    # create a ggplot
+    ggplot(aes(x = token, y = phi, label = phi, fill = type, country = code)) +
+    # add a bar plot using the 'phi' values
+    geom_bar(stat = "identity") +
+    # add text labels above the bars with rounded 'phi' values
+    geom_text(aes(
+        y = ifelse(phi > 0, phi + 0.03, phi - 0.03),
+        label = round(phi, 3)
+    ), color = "gray20", size = 3) +
+    geom_flag(aes(y = 0)) +
+    facet_wrap(~comp, scales = "free_y") +
+    # flip the coordinates to have horizontal bars
+    coord_flip(ylim = c(-0.15, 0.2)) +
+    # set the theme to a basic white and black theme
+    theme_bw() +
+    # remove legend
+    theme(legend.position = "none") +
+    # define colors
+    scale_fill_manual(values = c("gray50", "gray80")) +
+    # set the x-axis label to "Token" and y-axis label to "Keyness (G2)"
+    labs(title = "", x = "Vulgar lemma", y = "Phi-coefficient")
+# save
+ggsave(here::here("images", "Fig5.png"), width = 21, height = 12, units = "cm", dpi = 600)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(ggflags)
+library(tidytext) # for reorder_within
+
+# Combine datasets and prepare
+Fig5dat2 <- bind_rows(colloauuk, collousau, collousuk) %>%
+  filter(!is.na(phi))
+
+# Plot with per-facet ordering
+ggplot(Fig5dat2, aes(
+    x = reorder_within(token, phi, comp), 
+    y = phi, 
+    label = phi, 
+    fill = type,
+    country = code
+  )) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(
+    y = ifelse(phi > 0, phi + 0.015, phi - 0.015), 
+    label = round(phi, 3)
+  ), color = "gray20", size = 3) +
+  geom_flag(aes(y = 0), size = 5) +
+  facet_wrap(~comp, scales = "free_y") +
+  coord_flip(ylim = c(-0.15, 0.2)) +
+  scale_x_reordered() +  # Corrects x-axis ordering per facet
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_fill_manual(values = c("gray50", "gray80")) +
+  labs(
+    title = NULL,
+    x = "Vulgar lemma",
+    y = "Phi-coefficient"
+  )
+# save
+ggsave(here::here("images", "Fig5_new.png"), width = 21, height = 12, units = "cm", dpi = 600)
+```
+
+
+
+# Outro
+
+```{r}
+sessionInfo()
+```
+

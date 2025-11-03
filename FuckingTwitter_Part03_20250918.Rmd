@@ -1,0 +1,672 @@
+---
+title: "F%$# Twitter. A corpus-based analysis of vulgar language on Twitter - Part 3: Analysis"
+author: "Martin Schweinberger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Introduction
+
+This document shows the analysis of swear words in the Australian, UK, and US Twitterspheres
+
+# Preparation
+
+Install packages
+
+```{r inst, eval = F}
+install.packages("dplyr")
+install.packages("here")
+install.packages("stringr")
+install.packages("quanteda")
+install.packages("tidytext")
+install.packages("sentimentr")
+install.packages("writexl")
+install.packages("ggplot2")
+install.packages("Hmisc")
+install.packages("countrycode") 
+install.packages("ggimage")
+install.packages("cfa")
+install.packages("forcats")
+install.packages("report")
+install.packages(c("tm", "slam"))
+install.packages("topicmodels", type = "source")
+install.packages("seededlda")
+install.packages("Boruta")
+install.packages("reshape2")
+install.packages("rms")
+install.packages("lme4")
+install.packages("sjPlot")
+install.packages("car")
+install.packages("devtools")
+devtools::install_github('rensa/ggflags')
+```
+
+Activate packages
+
+```{r}
+library(dplyr)
+library(here)
+library(stringr)
+library(tidytext)
+library(quanteda)
+library(sentimentr)
+library(writexl)
+library(ggplot2)
+library(Hmisc)
+library(cfa)
+library(topicmodels)
+library(countrycode)
+library(seededlda)
+library(reshape2)
+library(ggflags)
+library(report)
+library(Boruta)
+library(rms)
+library(lme4)
+library(sjPlot)
+library(car)
+library(forcats)  # For reordering
+```
+
+# Processing
+
+Load data
+
+```{r load}
+twdat  <- base::readRDS(file = here::here("data", "twdat.rda"))
+kwicdf <- base::readRDS(file = here::here("tables", "kwicdf_clean.rda"))
+# inspect
+str(twdat); str(kwicdf)
+```
+
+
+# Inferential statistics
+
+```{r}
+kwicdat <- kwicdf %>%
+  dplyr::group_by(code, docname) %>%
+  dplyr::summarise(vulgar = n())
+# inspect
+head(kwicdat)
+```
+
+
+
+```{r}
+dat <- dplyr::left_join(twdat, kwicdat, by = c("docname", "code"))
+# inspect
+head(dat); table(dat$code)
+```
+
+# Table1
+
+```{r}
+Table1 <- dat %>%
+  tidyr::replace_na(list(vulgar = 0)) %>%
+  dplyr::group_by(code) %>%
+  dplyr::summarise(Tokens = sum(words),
+                   Tweets = n(),
+                   Users = length(names(table(user_id))),
+                   VulgarTokens = sum(vulgar),
+                   VulgarTweets = sum(ifelse(vulgar > 0, 1, 0)),
+                   MeanLengthTweet = round(Tokens/Tweets, 1),
+                   PercentVulgarTweets = round(VulgarTweets/Tweets * 100, 2),
+                   PercetVulgarTokens = round(VulgarTokens/Tokens*100, 2))
+# inspect
+Table1
+```
+
+```{r}
+sum(Table1[,2])
+sum(Table1[,3])
+sum(Table1[,4])
+sum(Table1[,2])/sum(Table1[,3])
+```
+
+
+
+```{r}
+# tweets
+(3581+19005+97748)/(99404+538661+2090972)*100
+# tokens
+(3906+20655+108175)/(1449292+7883971+27398975)*100
+```
+
+
+```{r}
+# vulgar tweets au
+3581/99404*100
+# vulgar tweets uk
+19005/538661*100
+# vulgar tweets us
+97748/2090972*100
+```
+
+
+```{r}
+# vulgar tokens au
+3906/1449292*100
+# vulgar tokens uk
+20655/7883971*100
+# vulgar tokens us
+108175/27398975*100
+```
+
+
+
+```{r}
+Table1b <- dat %>%
+  tidyr::replace_na(list(vulgar = 0)) %>%
+  dplyr::group_by(code, user_id) %>%
+  dplyr::summarise(vulgar = sum(ifelse(vulgar > 0, 1, 0))) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(code) %>%
+  dplyr::summarise(users = n(),
+                   vulgarusers = sum(vulgar),
+                   percent = round(vulgarusers/users*100, 1))
+# inspect
+Table1b
+```
+
+
+data prep
+ 
+```{r}
+sdat <- dat %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(wordsonly = tolower(wordsonly)) %>%
+  dplyr::select(-tweet_retrieved_at, -conversation_id, -lang, -source, -possibly_sensitive, -reply_settings, -withheld_copyright, -tweet_withheld_country_codes, -tweet_link, -user_retrieved_at, -username, -name, -location, -user_withheld_country_codes, -user_link, -cleantext, -transformed_text, -country, -text, -replied_to_tweet_id, -var) %>%  
+  dplyr::mutate(user_created_at = stringr::str_remove_all(user_created_at, "-.*"),
+                retweeted_tweet_id = ifelse(is.na(retweeted_tweet_id), "original", "retweet"),
+                quoted_tweet_id = ifelse(is.na(quoted_tweet_id), "containsquote", "noquote"),
+                id = 1:nrow(.)) %>%  
+  tidyr::replace_na(list(vulgar = 0))  %>%
+  dplyr::rename(retweet = retweeted_tweet_id,
+                quoted = quoted_tweet_id,
+                tweets = tweet_count,
+                listed = listed_count,
+                usersince = user_created_at) %>%
+  dplyr::filter(words >= 5)
+# inspect
+head(sdat);nrow(sdat)
+```
+
+
+# Topic Modelling
+
+
+```{r eval = F}
+sdat$wordsonly %>%
+  # tokenise
+  quanteda::tokens(remove_punct = T,
+                   remove_symbols = T,
+                   remove_numbers = T,
+                   remove_url = T) %>% 
+  # remove stop words
+  quanteda::tokens_select(pattern = stopwords("en"), selection = "remove") %>%
+  quanteda::tokens_select(pattern = stopwords("es"), selection = "remove") %>%
+  quanteda::tokens_select(pattern = "\\b(?!i$|ai$|ml$|vr$|tv$|blm$|cat$|dog$|bus$|car$|sex$|nsfw$|law$|gdp$|dm$)[a-z]{1,3}\\b", 
+                          selection = "remove", valuetype = "regex") %>%
+  # stemming
+  quanteda::tokens_wordstem() %>%
+  # convert to document-frequency matrix
+  quanteda::dfm(tolower = T) -> ctxts
+# add docvars
+docvars(ctxts, "id") <- sdat$id
+# clean data
+ctxts <- dfm_subset(ctxts, ntoken(ctxts) > 0)
+# inspect data
+ctxts[1:5, 1:5]
+```
+
+unsupervised LDA
+
+```{r eval = F}
+# generate model: change k to different numbers, e.g. 10 or 20 and look for consistencies in the keywords for the topics below.
+topicmodels::LDA(ctxts, k = 15, control = list(seed = 1234)) -> ddlda
+base::saveRDS(ddlda, file = here::here("tables", "ddlda.rda"))
+```
+
+load results of unsupervised lda
+
+```{r eval = F}
+ddlda  <- base::readRDS(file = here::here("tables", "ddlda.rda"))
+```
+
+
+```{r eval = F}
+# define number of topics
+ntopics <- 15
+# define number of terms
+nterms <- 10
+# generate table
+tidytext::tidy(ddlda, matrix = "beta") %>%
+  dplyr::group_by(topic) %>%
+  dplyr::slice_max(beta, n = nterms) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(topic, -beta) %>%
+  dplyr::mutate(
+    term = paste(term, " (", round(beta, 3), ")", sep = ""),
+    topic = paste("topic", topic),
+    topic = factor(topic, levels = c(paste("topic", 1:ntopics))),
+    top = rep(paste("top", 1:nterms), nrow(.) / nterms),
+    top = factor(top, levels = c(paste("top", 1:nterms)))
+  ) %>%
+  dplyr::select(-beta) %>%
+  tidyr::spread(topic, term) -> ddlda_top_terms
+ddlda_top_terms
+```
+
+extract topics
+
+```{r eval = F}
+# extract topics
+ddlda_topics <- tidy(ddlda, matrix = "beta")
+# inspect
+head(ddlda_topics, 20)
+```
+
+inspect topics
+
+```{r eval = F}
+ddlda_topics %>%
+  select(term) %>%
+  unique() %>%
+  filter(str_detect(term, "bridg"))
+```
+
+
+seeded topic modelling
+
+```{r eval = F}
+# semisupervised LDA
+dict <- dictionary(list(
+  crime         = c("crime", "murder", "polic", "violenc", "theft", "assault", "shoot", "arrest", "prison", "gun"),
+  employment    = c("job", "employ", "work", "hire", "wage", "career", "unemploy", "salari", "intern", "boss"),
+  entertainment = c("music", "film", "movi", "show", "celebr", "tv", "netflix", "seri", "concert", "award"),
+  finance       = c("money", "bank", "stock", "invest", "crypt", "bitcoin", "market", "fund", "trade", "dollar"),
+  economy       = c("econom", "inflation", "recess", "gdp", "tax", "budget", "spend", "debt", "growth", "unemploy"),
+  fashion       = c("fashion", "style", "trend", "wear", "design", "outfit", "brand", "cloth", "runway", "makeup"),
+  food          = c("food", "eat", "cook", "drink", "restaur", "dinner", "snack", "meal", "beer", "wine"),
+  travel        = c("travel", "trip", "vacat", "flight", "hotel", "tourism", "holiday", "tour", "airport", "journey"),
+  gaming        = c("game", "gamer", "play", "console", "esport", "xbox", "playstat", "nintendo", "stream", "twitch"),
+  science       = c("scienc", "research", "experi", "lab", "discoveri", "theori", "univers", "evidenc", "space", "astronom"),
+  relationships = c("love", "relationship", "date", "friend", "partner", "romanc", "crush", "marriag", "coupl", "divorc"),
+  memes         = c("meme", "funni", "joke", "gif", "trend", "lol", "haha", "humor", "parodi", "troll"),
+  business      = c("busi", "market", "brand", "entrepreneur", "startup", "compani", "corpor", "manag", "profit", "industr"),
+  mental_health = c("stress", "anxieti", "depress", "mind", "therapi", "mental", "psycho", "wellb", "selfcar", "suicid"),
+  transport     = c("car", "traffic", "train", "bus", "bike", "road", "highway", "metro", "subway", "uber"),
+  shopping      = c("shop", "buy", "store", "sale", "discount", "amazon", "cart", "retail", "coupon", "order"),
+  activism      = c("right", "protest", "justic", "equal", "chang", "blm", "climat", "march", "activist", "campaign"),
+  pets          = c("pet", "dog", "cat", "anim", "vet", "puppi", "kitten", "hamster", "parrot", "adopt"),
+  tech          = c("tech", "comput", "ai", "internet", "digit", "data", "app", "cyber", "cloud", "softwar"),
+  ai_innovation = c("ai", "ml", "deeplearn", "chatgpt", "neural", "robot", "quantum", "blockchain", "crypto", "vr"),
+  medical       = c("medic", "health", "doctor", "hospit", "nurs", "sick", "diseas", "surgeri", "clinic", "treatment"),
+  immigration   = c("immigr", "migrat", "border", "visa", "asylum", "refuge", "citizenship", "deport", "migrant", "greencard"),
+  foreign       = c("foreign", "diplomat", "global", "intern", "trade", "allianc", "embassi", "sanction", "treati", "war"),
+  media         = c("media", "news", "journal", "press", "report", "articl", "editor", "headlin", "outlet", "tv"),
+  adult_content = c("porn", "sex", "nsfw", "xxx", "adult", "fetish", "nude", "erot", "onlyfan", "strip"),
+  politics      = c("politic", "elect", "vote", "democr", "republic", "senat", "congress", "parliament", "law", "polici"),
+  climate       = c("climat", "globalwarm", "sustain", "renew", "green", "pollut", "emiss", "ecolog", "solar", "carbon"),
+  sports        = c("sport", "team", "match", "game", "champion", "leagu", "soccer", "footbal", "basketbal", "tenni"),
+  education     = c("school", "univers", "student", "teacher", "class", "learn", "curriculum", "exam", "degree", "scholarship"),
+  social_media  = c("twitter", "tweet", "facebook", "insta", "tiktok", "hashtag", "post", "dm", "follow", "like"),
+  military      = c("militari", "war", "armi", "navy", "soldier", "defens", "weapon", "nuclear", "drone", "conflict"),
+  identity      = c("gender", "race", "lgbt", "queer", "trans", "ethnic", "inclus", "divers", "equal", "ident")
+))
+tmod_slda <- seededlda::textmodel_seededlda(ctxts,
+  dict,
+  residual = TRUE,
+  min_termfreq = 2
+)
+# inspect
+seededlda::terms(tmod_slda)
+
+# save
+base::saveRDS(tmod_slda, file = here::here("tables", "tmod_slda.rda"))
+
+# generate data frame
+data.frame(tmod_slda$data@docvars$id, seededlda::topics(tmod_slda)) %>%
+  dplyr::rename(id = 1,
+                Topic = 2) -> topic_df
+# save
+base::saveRDS(topic_df, file = here::here("tables", "topic_df.rda"))
+# inspect
+head(topic_df)
+```
+
+load seeded lda results
+
+```{r}
+topic_df  <- base::readRDS(file = here::here("tables", "topic_df.rda"))
+```
+
+combine topics and data
+
+```{r}
+rdat <- dplyr::left_join(sdat, topic_df, by = "id") %>%
+  dplyr::mutate(
+    Topic = as.character(Topic),   # convert factor to character
+    Topic = ifelse(is.na(Topic), "no topic", Topic)
+  )
+  #dplyr::filter(!is.na(Topic))
+# inspect
+head(rdat);nrow(sdat);nrow(rdat)
+
+```
+
+Topic overview table
+
+```{r}
+# Overview table with counts and percentages
+topic_overview <- rdat %>%
+  group_by(Topic) %>%                       # group by Topic
+  summarise(Frequency = n(), .groups = "drop") %>%  # count occurrences
+  mutate(Percentage = round((Frequency / sum(Frequency)) * 100, 1)) %>%  # calculate percentage
+  arrange(desc(Frequency))                   # optional: sort by frequency
+
+# View the table
+topic_overview
+```
+
+
+
+
+# Time
+
+```{r}
+# define timezone offsets relative to UTC
+# adjust if you want to account for daylight saving
+offsets <- c(
+  us = -5,   # Eastern Standard Time (UTC-5)
+  gb = +1,   # British Summer Time (UTC+1)
+  au = +10   # Australian Eastern Standard Time (UTC+10)
+)
+
+rdat <- rdat %>%
+  mutate(
+    code = tolower(trimws(code)),  # make sure codes match offsets names
+    hour_utc = as.numeric(str_extract(tweet_created_at, "(?<=T)\\d{2}")),
+    time = (hour_utc + offsets[code]) %% 24
+  ) %>%
+  select(-hour_utc)
+
+table(rdat$code, rdat$time)
+```
+
+
+
+```{r}
+bdat <- rdat %>%
+  # normal
+  dplyr::select(-ltext)  %>%
+  dplyr::mutate(vulgar = ifelse(vulgar > 0 , 1, 0)) %>%
+  dplyr::mutate(logtweets = log(tweets),
+                logfollowers = log(followers_count+0.01),
+                logfollowing = log(following_count+0.01),
+                loglisted = log(listed+0.01),
+                logretweets = log(retweet_count+0.01),
+                logreplies = log(reply_count+0.01),
+                loglikes = log(like_count+0.01),
+                logquotes = log(quote_count+0.01),
+                topic = factor(Topic),
+                vulgar = factor(vulgar),
+                user = factor(user_id),
+                time = factor(time)) %>%
+  dplyr::select(-tweets, -followers_count, -following_count, -listed, -retweet_count, -reply_count, -like_count, -user_id, -quote_count, -tweet_id, -Topic, -tweet_created_at) %>%
+  dplyr::ungroup()
+# inspect
+head(bdat)
+```
+
+
+reformat time
+
+```{r}
+bdat %>% 
+  dplyr::ungroup() %>%
+  dplyr::filter(code == "au")  %>% 
+  dplyr::group_by(time) %>% 
+  dplyr::summarise(freq = n()) %>% 
+  ggplot(aes(x = time, y = freq)) +
+  geom_bar(stat = "identity")
+```
+
+```{r}
+bdat %>% 
+  dplyr::ungroup() %>%
+  dplyr::filter(code == "gb")  %>% 
+  dplyr::group_by(time) %>% 
+  dplyr::summarise(freq = n()) %>% 
+  ggplot(aes(x = time, y = freq)) +
+  geom_bar(stat = "identity")
+```
+
+```{r}
+bdat %>% 
+  dplyr::ungroup() %>%
+  dplyr::filter(code == "us")  %>% 
+  dplyr::group_by(time) %>% 
+  dplyr::summarise(freq = n()) %>% 
+  ggplot(aes(x = time, y = freq)) +
+  geom_bar(stat = "identity")
+```
+
+
+
+
+
+
+```{r}
+Fig3dat <- bdat %>%
+  dplyr::group_by(code, time) %>%
+  dplyr::summarise(tweets = n(),
+                   vulgar = sum(ifelse(vulgar == "1", 1, 0))) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(code) %>%
+  dplyr::mutate(totaltweets = sum(tweets),
+                totalvulgar = sum(vulgar)) %>%
+  dplyr::ungroup()  %>%
+  dplyr::mutate(O11 = vulgar,
+                O12 = totalvulgar- O11,
+                O21 = tweets-O11,
+                O22 = totaltweets-O11-O12-O21,
+                R1 = totalvulgar,
+                R2 = totaltweets - totalvulgar,
+                C1 = tweets,
+                C2 = totaltweets - C1)  %>%
+  dplyr::mutate(O11exp = C1*R1/totaltweets,
+                O11x2 = (O11-O11exp)^2/O11exp,
+                phi = sqrt(O11x2/totaltweets)) %>%
+  dplyr::mutate(phi = ifelse(O11 > O11exp, phi, -phi))
+# inspect
+head(Fig3dat)
+  
+```
+
+Fig3
+
+```{r}
+Fig3dat %>%
+  dplyr::mutate(code = dplyr::case_when(code == "us" ~ "United States",
+                                        code == "au" ~ "Australia",
+                                        code == "gb" ~ "United Kingdom",
+                                        T ~ code)) %>%
+  ggplot(aes(x = time, y = phi, fill = phi)) +
+  geom_bar(stat = "identity", color = "gray10") +
+  facet_wrap(~code, nrow = 3) +
+    theme_bw() +
+  scale_fill_gradient2(low = 'blue', mid = 'white', high = 'red', midpoint = 0) +
+  scale_x_discrete(breaks = levels(Fig3dat$time), labels = paste0(levels(Fig3dat$time), ":00", sep = "")) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 90),
+        legend.position = "none") +
+  labs(x = "Time of day (local time)", y = "Phi-coefficient")
+# save
+ggsave(here::here("images", "Fig3_time.png"), width = 15, height = 12, units = "cm", dpi = 600)
+```
+
+check what happens in Australia at 6 and 7pm.
+
+```{r}
+bdat %>%
+  dplyr::filter(code == "au",
+                vulgar != 0,
+                time == 18|19) %>%
+  dplyr::select(wordsonly)
+```
+
+```{r}
+bdat %>%
+  dplyr::filter(code == "au",
+                vulgar != 0,
+                time == 18|19) %>%
+  dplyr::group_by(topic) %>%
+  dplyr::summarise(freq = n())
+```
+
+# Topics
+
+```{r}
+Fig4dat <- bdat %>%
+  dplyr::group_by(code, topic) %>%
+  dplyr::summarise(tweets = n(),
+                   vulgar = sum(ifelse(vulgar == "1", 1, 0))) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(topic) %>%
+  dplyr::mutate(totaltweets = sum(tweets),
+                totalvulgar = sum(vulgar)) %>%
+  dplyr::ungroup()  %>%
+  dplyr::mutate(O11 = vulgar,
+                O12 = totalvulgar- O11,
+                O21 = tweets-O11,
+                O22 = totaltweets-O11-O12-O21,
+                R1 = totalvulgar,
+                R2 = totaltweets - totalvulgar,
+                C1 = tweets,
+                C2 = totaltweets - C1)  %>%
+  dplyr::mutate(O11exp = C1*R1/totaltweets,
+                O11x2 = (O11-O11exp)^2/O11exp,
+                phi = sqrt(O11x2/totaltweets)) %>%
+  dplyr::mutate(phi = ifelse(O11 > O11exp, phi, -phi))
+# inspect
+head(Fig4dat)
+  
+```
+
+Fig4
+
+```{r}
+Fig4dat %>%
+  dplyr::mutate(code = dplyr::case_when(code == "us" ~ "United States",
+                                        code == "au" ~ "Australia",
+                                        code == "gb" ~ "United Kingdom",
+                                        T ~ code)) %>%
+  ggplot(aes(x = topic, y = phi, fill = phi)) +
+  geom_bar(stat = "identity", color = "gray10") +
+  facet_wrap(~code, nrow = 3) +
+    theme_bw() +
+  scale_fill_gradient2(low = 'blue', mid = 'white', high = 'red', midpoint = 0) +
+  #scale_x_discrete(breaks = levels(Fig3dat$topic), labels = paste0(levels(Fig3dat$topic), ":00", sep = "")) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 90),
+        legend.position = "none") +
+  labs(x = "Topic", y = "Phi-coefficient")
+# save
+ggsave(here::here("images", "Fig4_topics.png"), width = 15, height = 12, units = "cm", dpi = 600)
+```
+
+
+# Boruta
+
+extract sample
+
+```{r}
+borutadat <- bdat %>%
+  # WARNING: for testing
+  dplyr::group_by(code) %>%
+  dplyr::sample_n(5000) %>%
+  dplyr::ungroup()  %>%
+dplyr::select(-docname, -wordsonly, -id)
+```
+
+
+
+```{r eval = F}
+library(Boruta)
+# set.seed 
+set.seed(20221210)
+# initial run
+boruta1 <- Boruta(vulgar~.,data=borutadat, maxRuns = 50)
+print(boruta1)
+```
+
+
+```{r eval = F}
+# extract decision
+getConfirmedFormula(boruta1)
+```
+
+```{r eval = T}
+boruta2 <-Boruta(vulgar ~ usersince + words + logtweets + logfollowers + logfollowing + 
+    loglisted + logretweets + logreplies + loglikes + logquotes + 
+    topic + user, data = borutadat)
+print(boruta2)
+```
+
+
+```{r eval = F}
+# extract decision
+getConfirmedFormula(boruta2)
+```
+
+```{r eval = T}
+borutadf <- as.data.frame(boruta2$ImpHistory) %>%
+  tidyr::gather(Variable, Importance, user:shadowMin) %>%
+  dplyr::mutate(Type = ifelse(str_detect(Variable, "shadow"), "Control", "Predictor")) %>%
+  dplyr::mutate(Type = factor(Type),
+                Variable = factor(Variable))
+
+# inspect
+head(borutadf)
+```
+
+```{r}
+borutadf %>%
+  dplyr::group_by(Variable) %>%
+  dplyr::summarise(Importance = mean(Importance)) %>%
+  dplyr::arrange(-Importance) %>%
+  dplyr::pull(Variable)
+
+```
+
+
+
+```{r eval = T}
+ggplot(borutadf, aes(x = reorder(Variable, Importance, mean), y = Importance, fill = Type)) + 
+  geom_boxplot() +
+  geom_vline(xintercept=3.5, linetype="dashed", color = "black") +
+  scale_fill_manual(values = c("gray80", "gray40")) +
+  theme_bw() + 
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle=90)) +
+  labs(x = "Variable")
+# save
+ggsave(here::here("images", "Fig7.png"))
+```
+
+
+```{r}
+base::saveRDS(bdat, file = here::here("data", "bdat.rda"))
+```
+
+
+# Outro
+
+```{r}
+sessionInfo()
+```
+

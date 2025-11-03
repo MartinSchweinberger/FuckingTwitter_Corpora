@@ -1,0 +1,208 @@
+---
+title: "F%$# Twitter. A corpus-based analysis of vulgar language on Twitter - Part 4: Regression Analysis"
+author: "Martin Schweinberger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Introduction
+
+This document shows the analysis of swear words in the Australian, UK, and US Twitterspheres
+
+# Preparation
+
+Install packages
+
+```{r inst, eval = F}
+install.packages("dplyr")
+install.packages("here")
+install.packages("stringr")
+install.packages("ggplot2")
+install.packages("Hmisc")
+install.packages("forcats")
+install.packages("report")
+install.packages("reshape2")
+install.packages("rms")
+install.packages("lme4")
+install.packages("sjPlot")
+install.packages("car")
+install.packages("devtools")
+```
+
+Activate packages
+
+```{r}
+library(dplyr)
+library(here)
+library(stringr)
+library(tidytext)
+library(ggplot2)
+library(Hmisc)
+library(reshape2)
+library(report)
+library(rms)
+library(sjPlot)
+library(car)
+library(forcats)  # For reordering
+```
+
+# Processing
+
+Load data
+
+```{r load}
+bdat  <- base::readRDS(file = here::here("data", "bdat.rda"))
+# inspect
+str(bdat)
+```
+
+select only variables identified as relevant by Boruta
+
+```{r}
+bdat <- bdat %>%
+  dplyr::select(vulgar, logfollowers, logfollowing, logtweets, user, loglisted,
+                usersince, logretweets, loglikes, topic, words, logreplies, logquotes)
+```
+
+
+# Regression Analysis
+
+```{r}
+# set options
+options(contrasts  =c("contr.treatment", "contr.poly"))
+mblrdata.dist <- datadist(bdat)
+options(datadist = "mblrdata.dist")
+```
+
+
+```{r}
+# base-line mixed-model
+m0 = glm(vulgar ~ 1, data = bdat, family = binomial) 
+sjPlot::tab_model(m0)
+```
+
+```{r eval = T}
+# add logfollowers
+m1 <- update(m0, .~.+ logfollowers )
+summary(m1)
+anova(m1, m0, test = "Chi")
+#sjPlot::tab_model(m1)
+```
+
+```{r eval = F}
+# base-line mixed-model
+m2 <- update(m1, .~.+ logtweets)
+#Error in glm.fit(x = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  : 
+#  NA/NaN/Inf in 'x'
+```
+
+```{r eval = T}
+# add logfollowing
+m3 <- update(m1, .~.+ logfollowing)
+car::vif(m3)
+summary(m3)
+anova(m3, m1, test = "Chi")
+#sjPlot::tab_model(m3)
+```
+
+
+```{r eval = T}
+# add loglisted
+m4 <- update(m3, .~.+ loglisted)
+car::vif(m4)
+summary(m4)
+anova(m4, m3, test = "Chi")
+#sjPlot::tab_model(m4)
+```
+
+```{r eval = T}
+# add topic
+m5 <- update(m4, .~.+ topic)
+car::vif(m5)
+summary(m5)
+anova(m5, m4, test = "Chi")
+#sjPlot::tab_model(m5)
+```
+
+```{r eval = T}
+# add usersince
+m6 <- update(m5, .~.+ usersince)
+car::vif(m6)
+summary(m6)
+anova(m6, m5, test = "Chi")
+car::Anova(m6)
+#sjPlot::tab_model(m6)
+```
+
+```{r eval = T}
+# add logtweets
+m7 <- update(m6, .~.+ logretweets)
+car::vif(m7)
+summary(m7)
+anova(m7, m6, test = "Chi")
+car::Anova(m7)
+#sjPlot::tab_model(m7)
+```
+
+
+
+```{r eval = T}
+# add loglikes
+m8 <- update(m7, .~.+ loglikes)
+car::vif(m8)
+summary(m8)
+anova(m8, m7, test = "Chi")
+#sjPlot::tab_model(m8)
+```
+
+
+```{r eval = T}
+# add logquotes
+m9 <- update(m8, .~.+ logquotes)
+car::vif(m9)
+summary(m9)
+anova(m9, m8, test = "Chi")
+#car::Anova(m9)
+#sjPlot::tab_model(m9)
+```
+
+```{r eval = T}
+# add words
+m10 <- update(m9, .~.+ words)
+car::vif(m10)
+summary(m10)
+anova(m10, m9, test = "Chi")
+#car::Anova(m10)
+#sjPlot::tab_model(m10)
+```
+
+```{r eval = T}
+# add logreplies
+m11 <- update(m10, .~.+ logreplies)
+car::vif(m11)
+summary(m11)
+anova(m11, m10, test = "Chi")
+#car::Anova(m11)
+sjPlot::tab_model(m11)
+```
+
+test region
+
+```{r eval = T}
+# add logreplies
+m11 <- update(m10, .~.+ logreplies)
+car::vif(m11)
+summary(m11)
+anova(m11, m10, test = "Chi")
+#car::Anova(m11)
+sjPlot::tab_model(m11)
+```
+
+
+# Outro
+
+```{r}
+sessionInfo()
+```
+
