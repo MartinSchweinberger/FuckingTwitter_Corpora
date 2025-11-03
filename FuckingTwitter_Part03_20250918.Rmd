@@ -15,31 +15,15 @@ This document shows the analysis of swear words in the Australian, UK, and US Tw
 Install packages
 
 ```{r inst, eval = F}
-install.packages("dplyr")
-install.packages("here")
-install.packages("stringr")
-install.packages("quanteda")
-install.packages("tidytext")
-install.packages("sentimentr")
-install.packages("writexl")
-install.packages("ggplot2")
-install.packages("Hmisc")
-install.packages("countrycode") 
-install.packages("ggimage")
-install.packages("cfa")
-install.packages("forcats")
-install.packages("report")
-install.packages(c("tm", "slam"))
+# install packages from CRAN
+install.packages(c("dplyr", "here", "stringr", "quanteda", "tidytext", "sentimentr", "writexl", "ggplot2", "Hmisc", "countrycode", "ggimage", "cfa", "forcats", "tm", "slam", "report", "seededlda", "Boruta", "reshape2", "rms", "lme4", "sjPlot", "car"))
+
 install.packages("topicmodels", type = "source")
-install.packages("seededlda")
-install.packages("Boruta")
-install.packages("reshape2")
-install.packages("rms")
-install.packages("lme4")
-install.packages("sjPlot")
-install.packages("car")
+
+# install ggflags package from GitHub
 install.packages("devtools")
 devtools::install_github('rensa/ggflags')
+
 ```
 
 Activate packages
