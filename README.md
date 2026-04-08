@@ -1,101 +1,89 @@
-# Swearing in English variants on Twitter
+# F%$# Twitter: A Corpus-Based Analysis of Vulgar Language on Twitter
 
-## Dependencies
+[![R](https://img.shields.io/badge/R-%3E%3D4.0-blue.svg)](https://www.r-project.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Issues](https://img.shields.io/github/issues/MartinSchweinberger/FuckingTwitter_Corpora)](https://github.com/MartinSchweinberger/FuckingTwitter_Corpora/issues)
+[![Forks](https://img.shields.io/github/forks/MartinSchweinberger/FuckingTwitter_Corpora)](https://github.com/MartinSchweinberger/FuckingTwitter_Corpora/network)
 
-Top level dependencies are specified in requirements.txt - this should work in any version of Python >= 3.9.
+This repository contains all the code and resources associated with the paper:
 
-## Data collection workflow
+**Schweinberger, M., M. Laitinen, M. Haugh, P. Rautionaho, M. Fatemi, S.Hames, & M. Takahashi. (2027). _F%$# Twitter: A corpus-based analysis of vulgar language on Twitter_. Corpora 27(1).** 
 
-The following are the expected order of steps we will take to create representative corpora for each national English.
+The repository allows researchers to explore, understand, and reproduce the analyses presented in the paper.
 
-1. Seed users via geographically tagged tweets, using Twitter search affordances for country.
-2. Snowball from seed users by some combination of the following:
-	- Follower/followee relationships
-	- Outbound interactions from their complete timelines on the reference day
-	- Inbound interactions (mentions, retweets and replies by other users)
-	- Conversation thread following
-3. Using user profile objects from the candidate set, apply filters to select geographically relevant users + their tweets for inclusion in the corpus.
-4. Collect timelines for included users on the target data.
-5. Prepare an analytical database using [the twittersphere tool](), and an output CSV for downstream convenience.
+---
 
+## Repository Structure
 
-## Data Files
+| Folder / File | Description |
+|---------------|-------------|
+| `data/`       | Raw and processed datasets used in the analysis. Due to Twitter’s Terms of Service, only aggregated or anonymized data are included. |
+| `docs/`       | Documentation, notes, and supplementary material related to the analysis. |
+| `images/`     | Figures and visualizations generated in the analysis. |
+| `tables/`     | Result tables created during the analysis. |
+| `renv/`       | R environment files to ensure reproducibility with exact package versions. |
+| `.Rprofile`   | Project-specific R settings. |
+| `.update`     | Miscellaneous scripts for updates and maintenance. |
+| `FuckingTwitter.Rproj` | RStudio project file for easy project management. |
+| `FuckingTwitter_Part01.Rmd` – `FuckingTwitter_Part04.Rmd` | Step-by-step R Markdown scripts for data processing, analysis, and visualization. |
 
-data.zip - the raw as collected Twitter JSON data
-processed_data.zip - transformed CSV and SQLite data files derived from the JSON data
-sample_data.zip - small CSV samples of Twitter data, files ending in random_sample.csv contain 10000 randomly selected tweets, files ending in swearing_sample.csv contain 1000 randomly selected tweets that contain either of the strings 'fuck' or 'shit'.
+---
 
-## CSV file schema
+## Getting Started
 
-The csv files are organised as one file per country. There is one row per
-tweet collected in the dataset, containing the attributes of the collected
-tweet, and some associated rows for the user who made the tweet. The user who
-made the tweet is always represented by the latest seen record for that user
-in the dataset - all tweets by the same user will have the same user
-attributes.
+To reproduce the analyses, follow these steps:
 
-tweet_id: The twitter identifier for the tweet
+1. **Clone the repository**  
+   ```bash
+   git clone https://github.com/MartinSchweinberger/FuckingTwitter_Corpora.git
 
-tweet_created_at: ISO8601 datetime of when the tweet was created.
+2. **Open the R project**  
+   Open `FuckingTwitter.Rproj` in RStudio.  
 
-tweet_retrieved_at: ISO8601 datetime of when the tweet was retrieved from the API
+3. **Install dependencies**  
+   The project uses `renv` to manage package versions. Install `renv` if necessary, and restore the environment:  
+   ```R
+   install.packages("renv")
+   renv::restore()
 
-conversation_id: The twitter identifier for the conversation this tweet is part of (this is the same as the tweet_id at the start of the thread)
+4. **Run the analysis**  
+The analysis is divided into four R Markdown scripts (`FuckingTwitter_Part01.Rmd` – `FuckingTwitter_Part04.Rmd`) which should be executed in order. These scripts cover:
 
-retweeted_tweet_id: The twitter identifier for the tweet this is a retweet of, or null if not a retweet
+- Data preprocessing and cleaning
+- Corpus analysis and tokenization
+- Statistical analysis and modeling
+- Visualizations and result tables
 
-quoted_tweet_id: The twitter identifier for the tweet quoted, or null if not a quote tweet
+---
 
-replied_to_tweet_id: The twitter identifier for the tweet this is in reply to, or null if not a reply
+## Reproducibility
 
-text: The HTML unescaped text of the tweet
+This repository is designed to maximize reproducibility:
 
-transformed_text: The same as text, but with #hashtags, @mentions and urls removed, and a standardised tokeniser applied to allow splitting on whitespace
+- All code is included and documented.
+- The `renv` environment ensures that exact R package versions can be restored.
+- Datasets comply with Twitter’s Terms of Service, ensuring ethical use and privacy protection.
 
-lang: the autodetected language of the tweet
+---
 
-source: the application used to post the tweet
+## License
 
-possibly_sensitive: auto applied setting to mark potentially "sensitive" tweets
+This project is licensed under MIT License.
 
-reply_settings: who can reply to this tweet (as of tweet_retrieved_at)
+---
 
-like_count: number of likes of this tweet
+## Citation
 
-quote_count: number of times this tweet has been quoted
+If you use this repository or the code in your research, please cite:
 
-reply_count: number of replies to this tweet
+> Schweinberger, M., M. Laitinen, M. Haugh, P. Rautionaho, M. Fatemi, S.Hames, & M. Takahashi. (2027). _F%$# Twitter: A corpus-based analysis of vulgar language on Twitter_. *Corpora* 27(1). 
 
-retweet_count: number of times this tweet has been retwitted
+---
 
-withheld_copyright: if not null, this tweet has been withheld for copyright
+## Contact
 
-withheld_country_codes: if withheld_copyright is not null, the countries it is withheld in as a json array of strings
+For questions or collaboration requests, please contact:
 
-tweet_url: the link to the live tweet on Twitter
+**Martin Schweinberger**  
+[m.schweinbergerATuq.edu.au / ORCID: 0000-0003-1923-9153 / University of Queensland]
 
-user_id: The twitter identifier for the user
-
-user_created_at: ISO8601 datetime for when the account was created
-
-user_retrieved_at: ISO8601 datetime for when the user profile was retrieved
-
-name: the profile's display name
-
-username: the handle of the tweet account, used for @mentions of that specific user
-
-location: The location free text field in the twitter user bio
-
-verified: boolean - whether the account is "verified" by Twitter
-
-followers_count: Number of accounts this account is followed by
-
-following_count: Number of accounts this account is following
-
-tweet_count: number of tweets made by this account
-
-listed_count: number of lists including this account
-
-withheld_country_codes: if present, the countries this account is withheld from due to legal reasons, as a json array of strings
-
-user_url: link to the user's profile on Twitter
